@@ -29,6 +29,7 @@ Resources:
       TracingEnabled: true
       Auth:
         DefaultAuthorizer: CognitoAuthorizer
+        AddDefaultAuthorizerToCorsPreflight: false
         Authorizers:
           CognitoAuthorizer:
             UserPoolArn: !Ref UserPoolArn
