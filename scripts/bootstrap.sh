@@ -17,9 +17,13 @@ if aws s3api head-bucket --bucket "${BUCKET_NAME}" 2>/dev/null; then
   echo "    Already exists, skipping."
 else
   if [ "${REGION}" = "us-east-1" ]; then
-    aws s3 mb "s3://${BUCKET_NAME}" --region "${REGION}"
+    aws s3api create-bucket \
+      --bucket "${BUCKET_NAME}" \
+      --region "${REGION}"
   else
-    aws s3 mb "s3://${BUCKET_NAME}" --region "${REGION}" \
+    aws s3api create-bucket \
+      --bucket "${BUCKET_NAME}" \
+      --region "${REGION}" \
       --create-bucket-configuration LocationConstraint="${REGION}"
   fi
   aws s3api put-bucket-versioning \
