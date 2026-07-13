@@ -1,0 +1,152 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Serverless Task Management Application — Root Orchestrator
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+  GitHubRepo:
+    Type: String
+    Default: ""
+    Description: Full GitHub HTTPS URL for Amplify (e.g. https://github.com/owner/repo)
+  GitHubBranch:
+    Type: String
+    Default: main
+  OAuthToken:
+    Type: String
+    Default: ""
+    NoEcho: true
+  GitHubOrg:
+    Type: String
+    Description: GitHub organisation or username (for OIDC trust condition)
+  GitHubRepoName:
+    Type: String
+    Description: GitHub repository name, without the org prefix
+
+Resources:
+
+  StorageStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: stacks/storage.yaml
+      Parameters:
+        Environment: !Ref Environment
+
+  MessagingStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: stacks/messaging.yaml
+      Parameters:
+        Environment: !Ref Environment
+
+  SchedulerStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: stacks/scheduler.yaml
+      Parameters:
+        Environment: !Ref Environment
+
+  LayerStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: stacks/layer.yaml
+      Parameters:
+        Environment: !Ref Environment
+
+  TriggersStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: stacks/triggers.yaml
+      Parameters:
+        Environment: !Ref Environment
+        TopicArn: !GetAtt MessagingStack.Outputs.TopicArn
+        LayerArn: !GetAtt LayerStack.Outputs.LayerArn
+
+  AuthStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: stacks/auth.yaml
+      Parameters:
+        Environment: !Ref Environment
+        PreSignUpArn: !GetAtt TriggersStack.Outputs.PreSignUpArn
+        PostAuthArn: !GetAtt TriggersStack.Outputs.PostAuthArn
+
+  ExpiryStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: stacks/expiry.yaml
+      Parameters:
+        Environment: !Ref Environment
+        TableArn: !GetAtt StorageStack.Outputs.TableArn
+        TableName: !GetAtt StorageStack.Outputs.TableName
+        TopicArn: !GetAtt MessagingStack.Outputs.TopicArn
+        SchedulerGroupName: !GetAtt SchedulerStack.Outputs.SchedulerGroupName
+        LayerArn: !GetAtt LayerStack.Outputs.LayerArn
+
+  ApiStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: stacks/api.yaml
+      Parameters:
+        Environment: !Ref Environment
+        TableArn: !GetAtt StorageStack.Outputs.TableArn
+        TableName: !GetAtt StorageStack.Outputs.TableName
+        UserPoolArn: !GetAtt AuthStack.Outputs.UserPoolArn
+        SchedulerGroupName: !GetAtt SchedulerStack.Outputs.SchedulerGroupName
+        ExpiryLambdaArn: !GetAtt ExpiryStack.Outputs.ExpiryLambdaArn
+        SchedulerRoleArn: !GetAtt ExpiryStack.Outputs.SchedulerRoleArn
+        LayerArn: !GetAtt LayerStack.Outputs.LayerArn
+
+  CancellationStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: stacks/cancellation.yaml
+      Parameters:
+        Environment: !Ref Environment
+        TableArn: !GetAtt StorageStack.Outputs.TableArn
+        StreamArn: !GetAtt StorageStack.Outputs.StreamArn
+        QueueUrl: !GetAtt MessagingStack.Outputs.QueueUrl
+        QueueArn: !GetAtt MessagingStack.Outputs.QueueArn
+        SchedulerGroupName: !GetAtt SchedulerStack.Outputs.SchedulerGroupName
+        LayerArn: !GetAtt LayerStack.Outputs.LayerArn
+
+  FrontendStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: HasGitHubRepo
+    Properties:
+      TemplateURL: stacks/frontend.yaml
+      Parameters:
+        Environment: !Ref Environment
+        GitHubRepo: !Ref GitHubRepo
+        GitHubBranch: !Ref GitHubBranch
+        OAuthToken: !Ref OAuthToken
+        UserPoolId: !GetAtt AuthStack.Outputs.UserPoolId
+        UserPoolClientId: !GetAtt AuthStack.Outputs.UserPoolClientId
+        ApiEndpoint: !GetAtt ApiStack.Outputs.ApiEndpoint
+
+  CicdStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: stacks/cicd.yaml
+      Parameters:
+        GitHubOrg: !Ref GitHubOrg
+        GitHubRepoName: !Ref GitHubRepoName
+        Environment: !Ref Environment
+
+Conditions:
+  HasGitHubRepo: !Not [!Equals [!Ref GitHubRepo, ""]]
+
+Outputs:
+  ApiEndpoint:
+    Value: !GetAtt ApiStack.Outputs.ApiEndpoint
+  UserPoolId:
+    Value: !GetAtt AuthStack.Outputs.UserPoolId
+  UserPoolClientId:
+    Value: !GetAtt AuthStack.Outputs.UserPoolClientId
+  AmplifyDomain:
+    Condition: HasGitHubRepo
+    Value: !GetAtt FrontendStack.Outputs.AmplifyDefaultDomain
+  DeployRoleArn:
+    Value: !GetAtt CicdStack.Outputs.DeployRoleArn

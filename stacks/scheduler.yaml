@@ -1,0 +1,16 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: EventBridge Scheduler group for per-task expiry schedules
+
+Parameters:
+  Environment:
+    Type: String
+
+Resources:
+  SchedulerGroup:
+    Type: AWS::Scheduler::ScheduleGroup
+    Properties:
+      Name: !Sub "task-expiry-group-${Environment}"
+
+Outputs:
+  SchedulerGroupName:
+    Value: !Ref SchedulerGroup

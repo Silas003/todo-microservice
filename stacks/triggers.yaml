@@ -1,0 +1,96 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Cognito trigger Lambdas — PreSignUp (auto-confirm) and PostAuthentication (SNS subscribe)
+
+Parameters:
+  Environment:
+    Type: String
+  TopicArn:
+    Type: String
+  LayerArn:
+    Type: String
+
+Resources:
+
+  # ── PreSignUp ──────────────────────────────────────────────────────────────
+  PreSignUpRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "PreSignUpRole-${Environment}"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  PreSignUpLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "pre-signup-${Environment}"
+      Handler: handler.lambda_handler
+      Runtime: python3.12
+      CodeUri: ../src/pre_signup_lambda/
+      Role: !GetAtt PreSignUpRole.Arn
+      Layers: [!Ref LayerArn]
+      Tracing: Active
+
+  PreSignUpLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/pre-signup-${Environment}"
+      RetentionInDays: 30
+
+  # ── PostAuthentication ─────────────────────────────────────────────────────
+  PostAuthRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "PostAuthRole-${Environment}"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SNSSubscribePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sns:Subscribe
+                  - sns:ListSubscriptionsByTopic
+                Resource: !Ref TopicArn
+
+  PostAuthLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "post-auth-${Environment}"
+      Handler: handler.lambda_handler
+      Runtime: python3.12
+      CodeUri: ../src/post_auth_lambda/
+      Role: !GetAtt PostAuthRole.Arn
+      Layers: [!Ref LayerArn]
+      Tracing: Active
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref TopicArn
+
+  PostAuthLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/post-auth-${Environment}"
+      RetentionInDays: 30
+
+Outputs:
+  PreSignUpArn:
+    Value: !GetAtt PreSignUpLambda.Arn
+  PostAuthArn:
+    Value: !GetAtt PostAuthLambda.Arn
