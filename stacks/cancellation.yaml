@@ -1,0 +1,129 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Stream Processor Lambda and Cancellation Lambda — event-driven expiry cancellation path
+
+Parameters:
+  Environment:
+    Type: String
+  TableArn:
+    Type: String
+  StreamArn:
+    Type: String
+  QueueUrl:
+    Type: String
+  QueueArn:
+    Type: String
+  SchedulerGroupName:
+    Type: String
+  LayerArn:
+    Type: String
+
+Resources:
+
+  # ── Stream Processor ────────────────────────────────────────────────────────
+  StreamProcessorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "StreamProcessorRole-${Environment}"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaDynamoDBExecutionRole
+      Policies:
+        - PolicyName: SQSSendPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !Ref QueueArn
+
+  StreamProcessorLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "stream-processor-${Environment}"
+      Handler: handler.lambda_handler
+      Runtime: python3.12
+      CodeUri: ../src/stream_processor_lambda/
+      Role: !GetAtt StreamProcessorRole.Arn
+      Layers: [!Ref LayerArn]
+      Tracing: Active
+      Environment:
+        Variables:
+          SQS_QUEUE_URL: !Ref QueueUrl
+      Events:
+        DynamoDBStream:
+          Type: DynamoDB
+          Properties:
+            Stream: !Ref StreamArn
+            StartingPosition: TRIM_HORIZON
+            BatchSize: 10
+            BisectBatchOnFunctionError: true
+            FilterCriteria:
+              Filters:
+                - Pattern: '{"eventName": ["REMOVE"]}'
+                - Pattern: '{"eventName": ["MODIFY"], "dynamodb": {"NewImage": {"Status": {"S": ["Completed"]}}}}'
+
+  StreamProcessorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/stream-processor-${Environment}"
+      RetentionInDays: 30
+
+  # ── Cancellation ───────────────────────────────────────────────────────────
+  CancellationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "CancellationRole-${Environment}"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaSQSQueueExecutionRole
+      Policies:
+        - PolicyName: SchedulerDeletePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: scheduler:DeleteSchedule
+                Resource: !Sub "arn:aws:scheduler:${AWS::Region}:${AWS::AccountId}:schedule/${SchedulerGroupName}/*"
+
+  CancellationLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "cancellation-task-${Environment}"
+      Handler: handler.lambda_handler
+      Runtime: python3.12
+      CodeUri: ../src/cancellation_lambda/
+      Role: !GetAtt CancellationRole.Arn
+      Layers: [!Ref LayerArn]
+      Tracing: Active
+      Environment:
+        Variables:
+          SCHEDULER_GROUP: !Ref SchedulerGroupName
+      Events:
+        SQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !Ref QueueArn
+            BatchSize: 1
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
+
+  CancellationLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/cancellation-task-${Environment}"
+      RetentionInDays: 30

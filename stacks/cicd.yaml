@@ -1,0 +1,126 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: GitHub Actions OIDC provider and IAM deployment role
+
+Parameters:
+  GitHubOrg:
+    Type: String
+    Description: GitHub organisation or username
+  GitHubRepoName:
+    Type: String
+    Description: Repository name without the org prefix
+  Environment:
+    Type: String
+
+Resources:
+  GitHubOIDCProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+
+  GitHubActionsDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "GitHubActionsDeployRole-${Environment}"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOIDCProvider
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                token.actions.githubusercontent.com:sub:
+                  !Sub "repo:${GitHubOrg}/${GitHubRepoName}:*"
+      Policies:
+        - PolicyName: SamDeployPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: CloudFormationAccess
+                Effect: Allow
+                Action: cloudformation:*
+                Resource: "*"
+              - Sid: S3ArtifactAccess
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                  - s3:GetBucketLocation
+                  - s3:CreateBucket
+                Resource: "*"
+              - Sid: IAMAccess
+                Effect: Allow
+                Action:
+                  - iam:CreateRole
+                  - iam:DeleteRole
+                  - iam:GetRole
+                  - iam:PutRolePolicy
+                  - iam:DeleteRolePolicy
+                  - iam:AttachRolePolicy
+                  - iam:DetachRolePolicy
+                  - iam:PassRole
+                  - iam:TagRole
+                  - iam:UntagRole
+                  - iam:GetRolePolicy
+                  - iam:ListRolePolicies
+                  - iam:ListAttachedRolePolicies
+                  - iam:CreateOpenIDConnectProvider
+                  - iam:GetOpenIDConnectProvider
+                  - iam:UpdateOpenIDConnectProviderThumbprint
+                  - iam:TagOpenIDConnectProvider
+                Resource: "*"
+              - Sid: LambdaAccess
+                Effect: Allow
+                Action: lambda:*
+                Resource: "*"
+              - Sid: DynamoDBAccess
+                Effect: Allow
+                Action: dynamodb:*
+                Resource: "*"
+              - Sid: CognitoAccess
+                Effect: Allow
+                Action: cognito-idp:*
+                Resource: "*"
+              - Sid: ApiGatewayAccess
+                Effect: Allow
+                Action: apigateway:*
+                Resource: "*"
+              - Sid: SNSAccess
+                Effect: Allow
+                Action: sns:*
+                Resource: "*"
+              - Sid: SQSAccess
+                Effect: Allow
+                Action: sqs:*
+                Resource: "*"
+              - Sid: SchedulerAccess
+                Effect: Allow
+                Action: scheduler:*
+                Resource: "*"
+              - Sid: AmplifyAccess
+                Effect: Allow
+                Action: amplify:*
+                Resource: "*"
+              - Sid: LogsAccess
+                Effect: Allow
+                Action: logs:*
+                Resource: "*"
+              - Sid: XRayAccess
+                Effect: Allow
+                Action: xray:*
+                Resource: "*"
+
+Outputs:
+  DeployRoleArn:
+    Value: !GetAtt GitHubActionsDeployRole.Arn
+  OIDCProviderArn:
+    Value: !Ref GitHubOIDCProvider

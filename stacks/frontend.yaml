@@ -1,0 +1,65 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Amplify frontend hosting — wired to Cognito and API Gateway
+
+Parameters:
+  Environment:
+    Type: String
+  GitHubRepo:
+    Type: String
+  GitHubBranch:
+    Type: String
+  OAuthToken:
+    Type: String
+    NoEcho: true
+  UserPoolId:
+    Type: String
+  UserPoolClientId:
+    Type: String
+  ApiEndpoint:
+    Type: String
+
+Resources:
+  AmplifyApp:
+    Type: AWS::Amplify::App
+    Properties:
+      Name: !Sub "todo-frontend-${Environment}"
+      Repository: !Ref GitHubRepo
+      OauthToken: !Ref OAuthToken
+      BuildSpec: |
+        version: 1
+        frontend:
+          phases:
+            preBuild:
+              commands:
+                - cd frontend
+                - npm ci
+            build:
+              commands:
+                - npm run build
+          artifacts:
+            baseDirectory: frontend/dist
+            files:
+              - '**/*'
+          cache:
+            paths:
+              - frontend/node_modules/**/*
+      EnvironmentVariables:
+        - Name: VITE_USER_POOL_ID
+          Value: !Ref UserPoolId
+        - Name: VITE_USER_POOL_CLIENT_ID
+          Value: !Ref UserPoolClientId
+        - Name: VITE_API_ENDPOINT
+          Value: !Ref ApiEndpoint
+
+  AmplifyBranch:
+    Type: AWS::Amplify::Branch
+    Properties:
+      AppId: !GetAtt AmplifyApp.AppId
+      BranchName: !Ref GitHubBranch
+      EnableAutoBuild: true
+
+Outputs:
+  AmplifyAppId:
+    Value: !GetAtt AmplifyApp.AppId
+  AmplifyDefaultDomain:
+    Value: !GetAtt AmplifyApp.DefaultDomain

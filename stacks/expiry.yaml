@@ -1,0 +1,104 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Expiry Lambda and EventBridge Scheduler execution role
+
+Parameters:
+  Environment:
+    Type: String
+  TableName:
+    Type: String
+  TableArn:
+    Type: String
+  TopicArn:
+    Type: String
+  SchedulerGroupName:
+    Type: String
+  LayerArn:
+    Type: String
+
+Resources:
+  ExpiryRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "ExpiryRole-${Environment}"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBUpdatePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: dynamodb:UpdateItem
+                Resource: !Ref TableArn
+        - PolicyName: SNSPublishPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: sns:Publish
+                Resource: !Ref TopicArn
+
+  ExpiryLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "expiry-task-${Environment}"
+      Handler: handler.lambda_handler
+      Runtime: python3.12
+      CodeUri: ../src/expiry_lambda/
+      Role: !GetAtt ExpiryRole.Arn
+      Layers: [!Ref LayerArn]
+      Tracing: Active
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref TableName
+          SNS_TOPIC_ARN: !Ref TopicArn
+
+  ExpirySchedulerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt ExpiryLambda.Arn
+      Action: lambda:InvokeFunction
+      Principal: scheduler.amazonaws.com
+      SourceArn: !Sub "arn:aws:scheduler:${AWS::Region}:${AWS::AccountId}:schedule/${SchedulerGroupName}/*"
+
+  ExpiryLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/expiry-task-${Environment}"
+      RetentionInDays: 30
+
+  # Execution role used by EventBridge Scheduler to invoke ExpiryLambda.
+  # Lives here rather than in scheduler.yaml because it requires ExpiryLambda.Arn.
+  SchedulerExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "SchedulerExecutionRole-${Environment}"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: InvokeExpiryLambda
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !GetAtt ExpiryLambda.Arn
+
+Outputs:
+  ExpiryLambdaArn:
+    Value: !GetAtt ExpiryLambda.Arn
+  SchedulerRoleArn:
+    Value: !GetAtt SchedulerExecutionRole.Arn
