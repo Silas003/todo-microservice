@@ -1,0 +1,39 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Messaging infrastructure — SNS topic and SQS FIFO queue for task cancellation
+
+Parameters:
+  Environment:
+    Type: String
+
+Resources:
+  NotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "task-notifications-${Environment}"
+
+  CancellationDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "cancellation-dlq-${Environment}.fifo"
+      FifoQueue: true
+      MessageRetentionPeriod: 1209600
+
+  CancellationQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "cancellation-queue-${Environment}.fifo"
+      FifoQueue: true
+      ContentBasedDeduplication: false
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt CancellationDLQ.Arn
+        maxReceiveCount: 3
+
+Outputs:
+  TopicArn:
+    Value: !Ref NotificationTopic
+  QueueUrl:
+    Value: !Ref CancellationQueue
+  QueueArn:
+    Value: !GetAtt CancellationQueue.Arn
+  DLQArn:
+    Value: !GetAtt CancellationDLQ.Arn
