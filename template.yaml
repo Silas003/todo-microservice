@@ -18,12 +18,6 @@ Parameters:
     Type: String
     Default: ""
     NoEcho: true
-  GitHubOrg:
-    Type: String
-    Description: GitHub organisation or username (for OIDC trust condition)
-  GitHubRepoName:
-    Type: String
-    Description: GitHub repository name, without the org prefix
 
 Resources:
 
@@ -126,14 +120,6 @@ Resources:
         UserPoolClientId: !GetAtt AuthStack.Outputs.UserPoolClientId
         ApiEndpoint: !GetAtt ApiStack.Outputs.ApiEndpoint
 
-  CicdStack:
-    Type: AWS::CloudFormation::Stack
-    Properties:
-      TemplateURL: stacks/cicd.yaml
-      Parameters:
-        GitHubOrg: !Ref GitHubOrg
-        GitHubRepoName: !Ref GitHubRepoName
-        Environment: !Ref Environment
 
 Conditions:
   HasGitHubRepo: !Not [!Equals [!Ref GitHubRepo, ""]]
@@ -148,5 +134,3 @@ Outputs:
   AmplifyDomain:
     Condition: HasGitHubRepo
     Value: !GetAtt FrontendStack.Outputs.AmplifyDefaultDomain
-  DeployRoleArn:
-    Value: !GetAtt CicdStack.Outputs.DeployRoleArn

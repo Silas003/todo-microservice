@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# One-time setup: creates the SAM artifact S3 bucket, then deploys the cicd
-# stack which provisions the GitHub OIDC provider and the deploy IAM role.
-# All subsequent deployments run through GitHub Actions using that role.
+# One-time setup: S3 artifact bucket, GitHub OIDC provider (idempotent),
+# and the cicd CloudFormation stack that creates the GitHub Actions deploy role.
 set -euo pipefail
 
 REGION="${1:-eu-central-1}"
@@ -12,23 +11,19 @@ ENVIRONMENT="dev"
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 BUCKET_NAME="sam-artifacts-${ACCOUNT_ID}-${REGION}"
 
-echo "==> [1/3] Creating SAM artifact bucket: ${BUCKET_NAME}"
+# ── Step 1: S3 artifact bucket ────────────────────────────────────────────────
+echo "==> [1/3] S3 artifact bucket: ${BUCKET_NAME}"
 if aws s3api head-bucket --bucket "${BUCKET_NAME}" 2>/dev/null; then
   echo "    Already exists, skipping."
 else
-  if [ "${REGION}" = "us-east-1" ]; then
-    aws s3api create-bucket \
-      --bucket "${BUCKET_NAME}" \
-      --region "${REGION}"
-  else
-    aws s3api create-bucket \
-      --bucket "${BUCKET_NAME}" \
-      --region "${REGION}" \
-      --create-bucket-configuration LocationConstraint="${REGION}"
-  fi
+  aws s3api create-bucket \
+    --bucket "${BUCKET_NAME}" \
+    --region "${REGION}" \
+    --create-bucket-configuration LocationConstraint="${REGION}"
   aws s3api put-bucket-versioning \
     --bucket "${BUCKET_NAME}" \
     --versioning-configuration Status=Enabled
+  echo "    Created."
 fi
 
 echo ""
@@ -40,9 +35,29 @@ else
 fi
 rm -f samconfig.toml.bak
 
+# ── Step 2: GitHub OIDC provider (account-wide singleton) ────────────────────
 echo ""
-echo "==> [3/3] Deploying cicd stack (OIDC provider + deploy IAM role)"
-# Package the cicd template to a temporary location so CloudFormation can access it.
+echo "==> [2/3] GitHub OIDC provider"
+OIDC_ARN=$(aws iam list-open-id-connect-providers \
+  --query "OpenIDConnectProviderList[?ends_with(Arn,'token.actions.githubusercontent.com')].Arn" \
+  --output text)
+
+if [ -z "${OIDC_ARN}" ] || [ "${OIDC_ARN}" = "None" ]; then
+  echo "    Creating..."
+  OIDC_ARN=$(aws iam create-open-id-connect-provider \
+    --url "https://token.actions.githubusercontent.com" \
+    --client-id-list "sts.amazonaws.com" \
+    --thumbprint-list "6938fd4d98bab03faadb97b34396831e3780aea1" \
+    --query OpenIDConnectProviderArn \
+    --output text)
+  echo "    Created: ${OIDC_ARN}"
+else
+  echo "    Already exists: ${OIDC_ARN}"
+fi
+
+# ── Step 3: cicd stack (deploy IAM role) ─────────────────────────────────────
+echo ""
+echo "==> [3/3] Deploying cicd stack (GitHub Actions IAM role)"
 CICD_PACKAGED="/tmp/cicd-packaged-${ENVIRONMENT}.yaml"
 aws cloudformation package \
   --template-file stacks/cicd.yaml \
@@ -58,7 +73,8 @@ aws cloudformation deploy \
   --parameter-overrides \
     GitHubOrg="${GITHUB_ORG}" \
     GitHubRepoName="${GITHUB_REPO_NAME}" \
-    Environment="${ENVIRONMENT}"
+    Environment="${ENVIRONMENT}" \
+    OIDCProviderArn="${OIDC_ARN}"
 
 DEPLOY_ROLE_ARN=$(aws cloudformation describe-stacks \
   --stack-name "todo-cicd-${ENVIRONMENT}" \
@@ -72,8 +88,6 @@ echo "Bootstrap complete."
 echo ""
 echo "Add these secrets to your GitHub repository:"
 echo "  AWS_DEPLOY_ROLE_ARN  = ${DEPLOY_ROLE_ARN}"
-echo "  GITHUB_ORG           = ${GITHUB_ORG}"
-echo "  GITHUB_REPO_NAME     = ${GITHUB_REPO_NAME}"
 echo "  GITHUB_REPO_URL      = https://github.com/${GITHUB_ORG}/${GITHUB_REPO_NAME}"
 echo "  AMPLIFY_OAUTH_TOKEN  = <GitHub PAT with repo scope>"
 echo "======================================================"

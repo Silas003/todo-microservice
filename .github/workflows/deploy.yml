@@ -62,8 +62,6 @@ jobs:
             --region ${{ env.AWS_REGION }} \
             --parameter-overrides \
               Environment=dev \
-              GitHubOrg=${{ secrets.GITHUB_ORG }} \
-              GitHubRepoName=${{ secrets.GITHUB_REPO_NAME }} \
               GitHubRepo=${{ secrets.GITHUB_REPO_URL }} \
               OAuthToken=${{ secrets.AMPLIFY_OAUTH_TOKEN }} \
               GitHubBranch=main

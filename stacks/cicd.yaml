@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: GitHub Actions OIDC provider and IAM deployment role
+Description: GitHub Actions IAM deployment role (OIDC provider managed outside this stack)
 
 Parameters:
   GitHubOrg:
@@ -10,17 +10,11 @@ Parameters:
     Description: Repository name without the org prefix
   Environment:
     Type: String
+  OIDCProviderArn:
+    Type: String
+    Description: ARN of the existing GitHub Actions OIDC provider (created by bootstrap.sh)
 
 Resources:
-  GitHubOIDCProvider:
-    Type: AWS::IAM::OIDCProvider
-    Properties:
-      Url: https://token.actions.githubusercontent.com
-      ClientIdList:
-        - sts.amazonaws.com
-      ThumbprintList:
-        - 6938fd4d98bab03faadb97b34396831e3780aea1
-
   GitHubActionsDeployRole:
     Type: AWS::IAM::Role
     Properties:
@@ -30,7 +24,7 @@ Resources:
         Statement:
           - Effect: Allow
             Principal:
-              Federated: !Ref GitHubOIDCProvider
+              Federated: !Ref OIDCProviderArn
             Action: sts:AssumeRoleWithWebIdentity
             Condition:
               StringEquals:
@@ -73,10 +67,6 @@ Resources:
                   - iam:GetRolePolicy
                   - iam:ListRolePolicies
                   - iam:ListAttachedRolePolicies
-                  - iam:CreateOpenIDConnectProvider
-                  - iam:GetOpenIDConnectProvider
-                  - iam:UpdateOpenIDConnectProviderThumbprint
-                  - iam:TagOpenIDConnectProvider
                 Resource: "*"
               - Sid: LambdaAccess
                 Effect: Allow
@@ -122,5 +112,3 @@ Resources:
 Outputs:
   DeployRoleArn:
     Value: !GetAtt GitHubActionsDeployRole.Arn
-  OIDCProviderArn:
-    Value: !Ref GitHubOIDCProvider
