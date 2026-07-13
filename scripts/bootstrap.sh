@@ -62,8 +62,8 @@ aws cloudformation deploy \
   --capabilities CAPABILITY_NAMED_IAM \
   --region "${REGION}" \
   --parameter-overrides \
-    GitHubOrg="${GITHUB_ORG}" \
-    GitHubRepoName="${GITHUB_REPO_NAME}" \
+    GitHubOrg="${ORG_NAME}" \
+    GitHubRepoName="${REPO_NAME}" \
     Environment="${ENVIRONMENT}" \
     OIDCProviderArn="${OIDC_ARN}"
 
@@ -79,6 +79,6 @@ echo "Bootstrap complete."
 echo ""
 echo "Add these secrets to your GitHub repository:"
 echo "  AWS_DEPLOY_ROLE_ARN  = ${DEPLOY_ROLE_ARN}"
-echo "  GITHUB_REPO_URL      = https://github.com/${GITHUB_ORG}/${GITHUB_REPO_NAME}"
+echo "  GITHUB_REPO_URL      = https://github.com/${ORG_NAME}/${REPO_NAME}"
 echo "  AMPLIFY_OAUTH_TOKEN  = <GitHub PAT with repo scope>"
 echo "======================================================"
