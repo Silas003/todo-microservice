@@ -1,0 +1,147 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: API Gateway REST API and CRUD Lambda
+
+Parameters:
+  Environment:
+    Type: String
+  TableName:
+    Type: String
+  TableArn:
+    Type: String
+  UserPoolArn:
+    Type: String
+  SchedulerGroupName:
+    Type: String
+  ExpiryLambdaArn:
+    Type: String
+  SchedulerRoleArn:
+    Type: String
+  LayerArn:
+    Type: String
+
+Resources:
+  TasksApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub "tasks-api-${Environment}"
+      StageName: !Ref Environment
+      TracingEnabled: true
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !Ref UserPoolArn
+            Identity:
+              Header: Authorization
+      Cors:
+        AllowOrigin: "'*'"
+        AllowHeaders: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+
+  CrudRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "CrudRole-${Environment}"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBCrudPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                Resource: !Ref TableArn
+        - PolicyName: SchedulerPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - scheduler:CreateSchedule
+                  - scheduler:DeleteSchedule
+                  - scheduler:GetSchedule
+                Resource: !Sub "arn:aws:scheduler:${AWS::Region}:${AWS::AccountId}:schedule/${SchedulerGroupName}/*"
+        - PolicyName: PassSchedulerRolePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: iam:PassRole
+                Resource: !Ref SchedulerRoleArn
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: scheduler.amazonaws.com
+
+  CrudLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "crud-tasks-${Environment}"
+      Handler: handler.lambda_handler
+      Runtime: python3.12
+      CodeUri: ../src/crud_lambda/
+      Role: !GetAtt CrudRole.Arn
+      Layers: [!Ref LayerArn]
+      Tracing: Active
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref TableName
+          SCHEDULER_GROUP: !Ref SchedulerGroupName
+          SCHEDULER_ROLE_ARN: !Ref SchedulerRoleArn
+          EXPIRY_LAMBDA_ARN: !Ref ExpiryLambdaArn
+      Events:
+        ListTasks:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TasksApi
+            Path: /tasks
+            Method: GET
+        CreateTask:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TasksApi
+            Path: /tasks
+            Method: POST
+        GetTask:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TasksApi
+            Path: /tasks/{taskId}
+            Method: GET
+        UpdateTask:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TasksApi
+            Path: /tasks/{taskId}
+            Method: PUT
+        DeleteTask:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TasksApi
+            Path: /tasks/{taskId}
+            Method: DELETE
+
+  CrudLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/crud-tasks-${Environment}"
+      RetentionInDays: 30
+
+Outputs:
+  ApiEndpoint:
+    Value: !Sub "https://${TasksApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
+  ApiId:
+    Value: !Ref TasksApi
