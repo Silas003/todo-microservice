@@ -26,15 +26,6 @@ else
   echo "    Created."
 fi
 
-echo ""
-echo "==> [2/3] Writing s3_bucket to samconfig.toml"
-if grep -q "s3_bucket" samconfig.toml; then
-  sed -i.bak "s|s3_bucket = .*|s3_bucket = \"${BUCKET_NAME}\"|" samconfig.toml
-else
-  sed -i.bak "/^\[default.deploy.parameters\]/a s3_bucket = \"${BUCKET_NAME}\"" samconfig.toml
-fi
-rm -f samconfig.toml.bak
-
 # ── Step 2: GitHub OIDC provider (account-wide singleton) ────────────────────
 echo ""
 echo "==> [2/3] GitHub OIDC provider"
