@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 
@@ -40,14 +39,21 @@ def lambda_handler(event, context):
     item = result.get("Attributes", {})
     description = item.get("Description", "")
 
+    subject = f'Task Expired — "{description}"' if description else "Task Expired"
+    message = (
+        f"Hello,\n\n"
+        f"Your task has expired:\n\n"
+        f"  Task:     {description or '(no description)'}\n"
+        f"  Task ID:  {task_id}\n"
+        f"  Status:   Expired\n\n"
+        f"This is an automated notification.\n"
+        f"Do not reply to this email."
+    )
+
     sns.publish(
         TopicArn=SNS_TOPIC_ARN,
-        Subject="Task Expired",
-        Message=json.dumps({
-            "message": f"Your task has expired: {description}",
-            "taskId": task_id,
-            "description": description,
-        }),
+        Subject=subject,
+        Message=message,
         MessageAttributes={
             "userId": {
                 "DataType": "String",

@@ -11,11 +11,15 @@ sns = boto3.client("sns")
 SNS_TOPIC_ARN = os.environ["SNS_TOPIC_ARN"]
 
 
-def _is_already_subscribed(email: str) -> bool:
+def _is_confirmed_subscription(email: str) -> bool:
     paginator = sns.get_paginator("list_subscriptions_by_topic")
     for page in paginator.paginate(TopicArn=SNS_TOPIC_ARN):
         for sub in page["Subscriptions"]:
-            if sub["Protocol"] == "email" and sub["Endpoint"] == email:
+            if (
+                sub["Protocol"] == "email"
+                and sub["Endpoint"] == email
+                and sub["SubscriptionArn"] != "PendingConfirmation"
+            ):
                 return True
     return False
 
@@ -27,8 +31,8 @@ def lambda_handler(event, context):
 
     logger.info("PostAuthentication for user sub=%s email=%s", user_sub, email)
 
-    if _is_already_subscribed(email):
-        logger.info("Email %s already subscribed, skipping", email)
+    if _is_confirmed_subscription(email):
+        logger.info("Email %s already has a confirmed subscription, skipping", email)
         return event
 
     sns.subscribe(
@@ -40,5 +44,5 @@ def lambda_handler(event, context):
             "FilterPolicyScope": "MessageAttributes",
         },
     )
-    logger.info("Subscribed %s to SNS topic with filter userId=%s", email, user_sub)
+    logger.info("Subscribed %s to SNS topic with filter userId=%s (pending confirmation)", email, user_sub)
     return event
