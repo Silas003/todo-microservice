@@ -4,7 +4,12 @@ import os
 
 import boto3
 
-from utils import deserialize_dynamodb_item
+try:
+    from utils import deserialize_dynamodb_item
+except ModuleNotFoundError:
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../layers/common/python'))
+    from utils import deserialize_dynamodb_item
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)

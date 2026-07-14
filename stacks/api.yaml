@@ -141,6 +141,28 @@ Resources:
       LogGroupName: !Sub "/aws/lambda/crud-tasks-${Environment}"
       RetentionInDays: 30
 
+  # Inject CORS headers into API Gateway-level error responses (auth failures,
+  # bad gateway, etc.) that bypass Lambda and would otherwise have no CORS headers.
+  GatewayResponseDefault4XX:
+    Type: AWS::ApiGateway::GatewayResponse
+    Properties:
+      RestApiId: !Ref TasksApi
+      ResponseType: DEFAULT_4XX
+      ResponseParameters:
+        gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+        gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+        gatewayresponse.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+
+  GatewayResponseDefault5XX:
+    Type: AWS::ApiGateway::GatewayResponse
+    Properties:
+      RestApiId: !Ref TasksApi
+      ResponseType: DEFAULT_5XX
+      ResponseParameters:
+        gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+        gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+        gatewayresponse.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+
 Outputs:
   ApiEndpoint:
     Value: !Sub "https://${TasksApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"

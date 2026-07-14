@@ -8,10 +8,20 @@ import boto3
 from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
-from utils import get_user_id, iso8601_from_epoch, response
+try:
+    from utils import get_user_id, iso8601_from_epoch, response
+except ModuleNotFoundError:
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../layers/common/python'))
+    from utils import get_user_id, iso8601_from_epoch, response
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+_REQUIRED_ENV = ["TABLE_NAME", "SCHEDULER_GROUP", "SCHEDULER_ROLE_ARN", "EXPIRY_LAMBDA_ARN"]
+_missing = [v for v in _REQUIRED_ENV if not os.environ.get(v)]
+if _missing:
+    raise RuntimeError(f"Missing required environment variables: {_missing}")
 
 dynamodb = boto3.resource("dynamodb")
 table = dynamodb.Table(os.environ["TABLE_NAME"])
